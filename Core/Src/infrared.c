@@ -158,11 +158,12 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                          (capture_value - last_capture_time);
 
         if (!receiving) {
-            // 检测起始信号：9ms低电平(载波) + 4.5ms高电平(空闲)
-            // 总共约13.5ms (13500us)
-            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 13500us
-            if (pulse_duration >= (start_total - 500) &&
-                pulse_duration <= (start_total + 500)) {
+            // 检测起始信号：3ms低电平(载波) + 1.5ms高电平(空闲)
+            // 总共约4.5ms (4500us)
+            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 4500us
+            uint32_t tolerance = IR_PULSE_TOLERANCE_US * 3; // 起始信号容差稍大
+            if (pulse_duration >= (start_total - tolerance) &&
+                pulse_duration <= (start_total + tolerance)) {
                 receiving = 1;
                 bit_index = 0;
                 memset(received_data, 0, 9);
@@ -174,20 +175,21 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                 return;
             }
 
-            // 数据位判断：位0=560us低+560us高 总计1120us，位1=560us低+1680us高 总计2240us
+            // 数据位判断：位0=60us低+60us高 总计120us，位1=60us低+120us高 总计180us
             // 这里检测的是整个位周期（低电平+高电平）
-            // 位0: 约1120us (560*2)
-            // 位1: 约2240us (560+1680)
-            uint32_t bit0_total = BIT_ZERO_HIGH + BIT_ZERO_LOW;  // 1120us
-            uint32_t bit1_total = BIT_ONE_HIGH + BIT_ONE_LOW;     // 2240us
+            // 位0: 约120us (60+60)
+            // 位1: 约180us (60+120)
+            uint32_t bit0_total = BIT_ZERO_HIGH + BIT_ZERO_LOW;  // 120us
+            uint32_t bit1_total = BIT_ONE_HIGH + BIT_ONE_LOW;     // 180us
+            uint32_t tolerance = IR_PULSE_TOLERANCE_US;
 
-            if (pulse_duration >= (bit0_total - 300) &&
-                pulse_duration <= (bit0_total + 300)) {
+            if (pulse_duration >= (bit0_total - tolerance) &&
+                pulse_duration <= (bit0_total + tolerance)) {
                 // 位0不需要设置，缓冲区已初始化为0
                 bit_index++;
             }
-            else if (pulse_duration >= (bit1_total - 300) &&
-                     pulse_duration <= (bit1_total + 300)) {
+            else if (pulse_duration >= (bit1_total - tolerance) &&
+                     pulse_duration <= (bit1_total + tolerance)) {
                 received_data[bit_index / 8] |= (1 << (7 - (bit_index % 8)));
                 bit_index++;
             }

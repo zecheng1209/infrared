@@ -21,14 +21,16 @@ u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio_ex.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_exti.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_dma.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_dma_ex.h
+u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_can.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_cortex.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h
 u8t6--2\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h
+u8t6--2\main.o: ../Core/Inc/can.h
+u8t6--2\main.o: C:\Users\zhong\AppData\Local\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
 u8t6--2\main.o: ../Core/Inc/tim.h
 u8t6--2\main.o: ../Core/Inc/gpio.h
 u8t6--2\main.o: ../Core/Src/infrared.h
 u8t6--2\main.o: C:\Users\zhong\AppData\Local\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
-u8t6--2\main.o: C:\Users\zhong\AppData\Local\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
