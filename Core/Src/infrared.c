@@ -158,9 +158,9 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                          (capture_value - last_capture_time);
 
         if (!receiving) {
-            // 检测起始信号：3ms低电平(载波) + 1.5ms高电平(空闲)
-            // 总共约4.5ms (4500us)
-            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 4500us
+            // 检测起始信号：1.5ms低电平(载波) + 0.75ms高电平(空闲)
+            // 总共约2.25ms (2250us)
+            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 2250us
             uint32_t tolerance = IR_PULSE_TOLERANCE_US * 3; // 起始信号容差稍大
             if (pulse_duration >= (start_total - tolerance) &&
                 pulse_duration <= (start_total + tolerance)) {
@@ -214,9 +214,23 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 
 // 红外接收完成标志（供主循环查询）
 volatile uint8_t ir_rx_complete_flag = 0;
+volatile uint8_t ir_ack_received_flag = 0; // ACK接收标志
+volatile uint8_t ir_ack_status = 0;        // ACK状态: 0=无, 1=ACK, 2=NACK
 
 void IR_ReceiveData(void) {
-    // 设置接收完成标志，主循环将处理转发到CAN
+    // 检查是否是ACK帧
+    if (received_data[0] == IR_ACK_MAGIC && received_data[1] == IR_ACK_MAGIC) {
+        ir_ack_status = 1;  // 收到ACK
+        ir_ack_received_flag = 1;
+        return;
+    }
+    // 检查是否是NACK帧
+    if (received_data[0] == IR_NACK_MAGIC && received_data[1] == IR_NACK_MAGIC) {
+        ir_ack_status = 2;  // 收到NACK
+        ir_ack_received_flag = 1;
+        return;
+    }
+    // 普通数据帧，设置接收完成标志
     ir_rx_complete_flag = 1;
 }
 
@@ -248,6 +262,83 @@ bool IR_SendDataWithRetry(uint8_t *data, uint8_t length, uint8_t max_retry)
     }
     
     return false;
+}
+
+// 发送ACK帧
+void IR_SendAck(uint8_t status)
+{
+    uint8_t ack_frame[2];
+    if (status == 1) {
+        ack_frame[0] = IR_ACK_MAGIC;
+        ack_frame[1] = IR_ACK_MAGIC;
+    } else {
+        ack_frame[0] = IR_NACK_MAGIC;
+        ack_frame[1] = IR_NACK_MAGIC;
+    }
+    IR_SendDataWithRetry(ack_frame, 2, 2);
+}
+
+// 带ACK确认的数据发送（推荐用于双向通信）
+bool IR_SendDataAndWaitAck(uint8_t *data, uint8_t length, uint8_t max_retry)
+{
+    if (length > 8) return false;
+    
+    for (uint8_t retry = 0; retry < max_retry; retry++) {
+        // 清除ACK标志
+        ir_ack_received_flag = 0;
+        ir_ack_status = 0;
+        
+        // 等待发送空闲
+        while (IR_IsTXBusy()) {
+            HAL_Delay(1);
+        }
+        
+        // 发送数据
+        if (!IR_SendData(data, length)) {
+            HAL_Delay(5);
+            continue;
+        }
+        
+        // 等待发送完成
+        while (IR_IsTXBusy()) {
+            HAL_Delay(1);
+        }
+        
+        // 等待ACK（超时时间100ms）
+        uint32_t start_time = HAL_GetTick();
+        while ((HAL_GetTick() - start_time) < IR_ACK_TIMEOUT_MS) {
+            if (ir_ack_received_flag) {
+                if (ir_ack_status == 1) {
+                    return true;  // 收到ACK，发送成功
+                } else {
+                    break;  // 收到NACK，需要重传
+                }
+            }
+            HAL_Delay(1);
+        }
+        
+        // 超时或未收到ACK，等待后重试
+        HAL_Delay(10);
+    }
+    
+    return false;  // 重传次数用完，发送失败
+}
+
+// 处理接收到的数据帧（在main循环中调用）
+void IR_ProcessReceivedFrame(uint8_t *data, uint8_t length)
+{
+    // 计算并验证CRC
+    uint8_t received_crc = data[length - 1];
+    uint8_t calculated_crc = IR_CRC8(data, length - 1);
+    
+    if (received_crc == calculated_crc) {
+        // CRC正确，发送ACK
+        IR_SendAck(1);
+        // TODO: 在这里处理接收到的数据
+    } else {
+        // CRC错误，发送NACK
+        IR_SendAck(2);
+    }
 }
 
 void IR_CheckRxTimeout(void)

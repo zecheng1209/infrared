@@ -53,7 +53,13 @@ extern volatile uint8_t can_rx_flag;
 extern volatile uint32_t can_rx_id;
 
 // CAN发送目标ID（红外数据转发到CAN的ID）
-#define CAN_TX_ID_IR_DATA   0x200
+//#define CAN_TX_ID_IR_DATA   0x200
+#define CAN_INFRARED_ID 0x001  // 红外模块ID
+
+// 红外发送状态（用于CAN→红外带ACK确认）
+#define IR_TX_IDLE       0
+#define IR_TX_WAIT_ACK    1
+volatile uint8_t ir_tx_state = IR_TX_IDLE;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -112,32 +118,33 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     IR_CheckRxTimeout();
-    
-    // 方向1: CAN → 红外
-    // 当收到CAN数据且红外发送空闲时，转发到红外
-    if (can_rx_flag && !IR_IsTXBusy())
+
+    // CAN → 红外 (带ACK确认机制)
+    if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
     {
-      can_rx_flag = 0;  // 清除标志
-      
-      // 发送CAN数据到红外（8字节数据，自动添加CRC）
-      IR_SendData((uint8_t*)can_rx_buffer, 8);
+      can_rx_flag = 0;
+      ir_tx_state = IR_TX_WAIT_ACK;
+      // 使用带ACK确认的发送函数，自动添加CRC
+      IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
+      ir_tx_state = IR_TX_IDLE;
     }
-    
-    // 方向2: 红外 → CAN
-    // 当红外接收完成时，验证CRC并转发到CAN
+
+    // 红外 → CAN
+    // 当红外接收完成时，处理数据并自动回复ACK/NACK
     if (ir_rx_complete_flag)
     {
-      ir_rx_complete_flag = 0;  // 清除标志
-      
+      ir_rx_complete_flag = 0;
+      // 处理接收到的数据，验证CRC并自动回复ACK
+      IR_ProcessReceivedFrame(received_data, 9);
+
       // 验证CRC（第9字节是CRC）
       uint8_t calculated_crc = IR_CRC8(received_data, 8);
       if (calculated_crc == received_data[8])
       {
         // CRC校验通过，发送到CAN
-        // 使用固定ID 0x200表示这是红外转发的数据
-        CAN_SendData(received_data, 8, CAN_TX_ID_IR_DATA);
+        CAN_SendData(received_data, 8, CAN_INFRARED_ID);
       }
-      // CRC错误则丢弃数据
+      // CRC错误则不发送，由IR_ProcessReceivedFrame发送NACK
     }
   }
   /* USER CODE END 3 */

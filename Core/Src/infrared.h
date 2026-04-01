@@ -7,12 +7,12 @@
 
 // 红外时序定义 (优化版NEC协议 - 高速模式)
 #define IR_FREQUENCY    38000
-#define START_PULSE_LEN 3000  // 起始信号：3ms高电平 (原为9ms)
-#define START_SPACE_LEN 1500  // 起始信号：1.5ms低电平 (原为4.5ms)
-#define BIT_ONE_HIGH    60    // 1的高电平：60us (原为560us)
-#define BIT_ONE_LOW     120   // 1的低电平：120us (原为1680us)
-#define BIT_ZERO_HIGH   60    // 0的高电平：60us (原为560us)
-#define BIT_ZERO_LOW    60    // 0的低电平：60us (原为560us)
+#define START_PULSE_LEN 1500  // 起始信号：1.5ms高电平 (原为9ms)
+#define START_SPACE_LEN 750   // 起始信号：0.75ms低电平 (原为4.5ms)
+#define BIT_ONE_HIGH    60    // 1的高电平：60us
+#define BIT_ONE_LOW     120   // 1的低电平：120us
+#define BIT_ZERO_HIGH   60    // 0的高电平：60us
+#define BIT_ZERO_LOW    60    // 0的低电平：60us
 
 // 超时和容错定义
 #define IR_RX_TIMEOUT_MS        50      // 接收超时时间（毫秒）
@@ -20,6 +20,11 @@
 #define IR_PULSE_TOLERANCE_US   30      // 脉冲宽度容差（微秒）
 #define IR_MAX_PULSE_US         250     // 最大有效脉冲宽度（微秒）
 #define IR_MAX_RETRY_COUNT      3       // 最大重传次数
+
+// ACK机制定义
+#define IR_ACK_TIMEOUT_MS       100     // 等待ACK超时时间（毫秒）
+#define IR_ACK_MAGIC            0xA5    // ACK帧魔术字节
+#define IR_NACK_MAGIC           0x5A    // NACK帧魔术字节
 
 // 引脚定义
 #define IR_RX_GPIO_PORT     GPIOA
@@ -33,6 +38,8 @@
 extern uint8_t received_data[9]; // 接收数据缓冲区（供外部访问）
 extern uint32_t rx_last_activity_time; // 上次接收活动时间
 extern volatile uint8_t ir_rx_complete_flag; // 红外接收完成标志
+extern volatile uint8_t ir_ack_received_flag; // ACK接收标志
+extern volatile uint8_t ir_ack_status; // ACK状态: 0=无, 1=ACK, 2=NACK
 
 // 发送状态机状态定义
 typedef enum {
@@ -59,11 +66,14 @@ typedef struct {
 void IR_Init(void);
 bool IR_SendData(uint8_t *data, uint8_t length);
 bool IR_SendDataWithRetry(uint8_t *data, uint8_t length, uint8_t max_retry);
+bool IR_SendDataAndWaitAck(uint8_t *data, uint8_t length, uint8_t max_retry);
+void IR_SendAck(uint8_t status);
 void IR_TX_TimerCallback(TIM_HandleTypeDef *htim);
 bool IR_IsTXBusy(void);
 void IR_ReceiveData(void);
 uint8_t IR_CRC8(uint8_t *data, uint8_t length);
 void IR_ResetBuffer(void);
 void IR_CheckRxTimeout(void);
+void IR_ProcessReceivedFrame(uint8_t *data, uint8_t length);
 
 #endif
