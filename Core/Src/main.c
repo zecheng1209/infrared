@@ -52,10 +52,6 @@ extern volatile uint8_t can_rx_buffer[8];
 extern volatile uint8_t can_rx_flag;
 extern volatile uint32_t can_rx_id;
 
-// CAN发送目标ID（红外数据转发到CAN的ID）
-//#define CAN_TX_ID_IR_DATA   0x200
-#define CAN_INFRARED_ID 0x001  // 红外模块ID
-
 // 红外发送状态（用于CAN→红外带ACK确认）
 #define IR_TX_IDLE       0
 #define IR_TX_WAIT_ACK    1
@@ -120,13 +116,20 @@ int main(void)
     IR_CheckRxTimeout();
 
     // CAN → 红外 (带ACK确认机制)
+    // CAN ID = 目标模块ID，数据帧 = 纯数据
     if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
     {
       can_rx_flag = 0;
-      ir_tx_state = IR_TX_WAIT_ACK;
-      // 使用带ACK确认的发送函数，自动添加CRC
-      IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
-      ir_tx_state = IR_TX_IDLE;
+
+      // 检查CAN ID是否匹配本模块
+      if (can_rx_id == IR_MODULE_ID)
+      {
+        ir_tx_state = IR_TX_WAIT_ACK;
+        // 使用带ACK确认的发送函数，自动添加CRC
+        IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
+        ir_tx_state = IR_TX_IDLE;
+      }
+      // ID不匹配则忽略该CAN帧
     }
 
     // 红外 → CAN
@@ -142,7 +145,8 @@ int main(void)
       if (calculated_crc == received_data[8])
       {
         // CRC校验通过，发送到CAN
-        CAN_SendData(received_data, 8, CAN_INFRARED_ID);
+        // CAN ID = 源模块ID，数据帧 = 纯数据
+        CAN_SendData(received_data, 8, IR_MODULE_ID);
       }
       // CRC错误则不发送，由IR_ProcessReceivedFrame发送NACK
     }

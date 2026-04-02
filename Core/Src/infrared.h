@@ -26,6 +26,9 @@
 #define IR_ACK_MAGIC            0xA5    // ACK帧魔术字节
 #define IR_NACK_MAGIC           0x5A    // NACK帧魔术字节
 
+// 模块ID定义（每个模块需要设置不同的ID，用于上位机区分）
+#define IR_MODULE_ID            0x01   // 模块ID (1-255)
+
 // 引脚定义
 #define IR_RX_GPIO_PORT     GPIOA
 #define IR_RX_GPIO_PIN      GPIO_PIN_15
