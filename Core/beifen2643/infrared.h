@@ -5,20 +5,20 @@
 #include <string.h>
 #include <stdbool.h>
 
-// 红外时序定义 (NEC标准的一半 - 高速模式)
+// 红外时序定义 (优化版NEC协议 - 高速模式)
 #define IR_FREQUENCY    38000
-#define START_PULSE_LEN 4500  // 起始信号：4.5ms高电平 (NEC标准9ms的一半)
-#define START_SPACE_LEN 2250  // 起始信号：2.25ms低电平 (NEC标准4.5ms的一半)
-#define BIT_ONE_HIGH    280   // 1的高电平：280us (NEC标准560us的一半)
-#define BIT_ONE_LOW     840   // 1的低电平：840us (NEC标准1680us的一半)
-#define BIT_ZERO_HIGH   280   // 0的高电平：280us (NEC标准560us的一半)
-#define BIT_ZERO_LOW    280   // 0的低电平：280us (NEC标准560us的一半)
+#define START_PULSE_LEN 1500  // 起始信号：1.5ms高电平 (原为9ms)
+#define START_SPACE_LEN 750   // 起始信号：0.75ms低电平 (原为4.5ms)
+#define BIT_ONE_HIGH    60    // 1的高电平：60us
+#define BIT_ONE_LOW     120   // 1的低电平：120us
+#define BIT_ZERO_HIGH   60    // 0的高电平：60us
+#define BIT_ZERO_LOW    60    // 0的低电平：60us
 
 // 超时和容错定义
 #define IR_RX_TIMEOUT_MS        50      // 接收超时时间（毫秒）
 #define IR_TX_FRAME_INTERVAL_MS 30      // 帧间隔（毫秒）
-#define IR_PULSE_TOLERANCE_US   150     // 脉冲宽度容差（微秒）
-#define IR_MAX_PULSE_US         1500    // 最大有效脉冲宽度（微秒）
+#define IR_PULSE_TOLERANCE_US   30      // 脉冲宽度容差（微秒）
+#define IR_MAX_PULSE_US         250     // 最大有效脉冲宽度（微秒）
 #define IR_MAX_RETRY_COUNT      3       // 最大重传次数
 
 // ACK机制定义
@@ -78,5 +78,5 @@ uint8_t IR_CRC8(uint8_t *data, uint8_t length);
 void IR_ResetBuffer(void);
 void IR_CheckRxTimeout(void);
 void IR_ProcessReceivedFrame(uint8_t *data, uint8_t length);
-///上位机要求，1.能够请求调用模块，对模块发送的接收中断   2.结构体包括各个模块id，以及红外的解析函数
+
 #endif

@@ -115,41 +115,41 @@ int main(void)
     /* USER CODE BEGIN 3 */
     IR_CheckRxTimeout();
 
-    // CAN → 红外 (带ACK确认机制)
-    // CAN ID = 目标模块ID，数据帧 = 纯数据
-    if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
-    {
-      can_rx_flag = 0;
+////    // CAN → 红外 (带ACK确认机制)
+////    // CAN ID = 目标模块ID，数据帧 = 纯数据
+////    if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
+////    {
+////      can_rx_flag = 0;
 
-      // 检查CAN ID是否匹配本模块
-      if (can_rx_id == IR_MODULE_ID)
-      {
-        ir_tx_state = IR_TX_WAIT_ACK;
-        // 使用带ACK确认的发送函数，自动添加CRC
-        IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
-        ir_tx_state = IR_TX_IDLE;
-      }
-      // ID不匹配则忽略该CAN帧
-    }
+////      // 检查CAN ID是否匹配本模块
+////      if (can_rx_id == IR_MODULE_ID)
+////      {
+////        ir_tx_state = IR_TX_WAIT_ACK;
+////        // 使用带ACK确认的发送函数，自动添加CRC
+////        IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
+////        ir_tx_state = IR_TX_IDLE;
+////      }
+////      // ID不匹配则忽略该CAN帧
+////    }
 
-    // 红外 → CAN
-    // 当红外接收完成时，处理数据并自动回复ACK/NACK
-    if (ir_rx_complete_flag)
-    {
-      ir_rx_complete_flag = 0;
-      // 处理接收到的数据，验证CRC并自动回复ACK
-      IR_ProcessReceivedFrame(received_data, 9);
+////    // 红外 → CAN
+////    // 当红外接收完成时，处理数据并自动回复ACK/NACK
+////    if (ir_rx_complete_flag)
+////    {
+////      ir_rx_complete_flag = 0;
+////      // 处理接收到的数据，验证CRC并自动回复ACK
+////      IR_ProcessReceivedFrame(received_data, 9);
 
-      // 验证CRC（第9字节是CRC）
-      uint8_t calculated_crc = IR_CRC8(received_data, 8);
-      if (calculated_crc == received_data[8])
-      {
-        // CRC校验通过，发送到CAN
-        // CAN ID = 源模块ID，数据帧 = 纯数据
-        CAN_SendData(received_data, 8, IR_MODULE_ID);
-      }
-      // CRC错误则不发送，由IR_ProcessReceivedFrame发送NACK
-    }
+////      // 验证CRC（第9字节是CRC）
+////      uint8_t calculated_crc = IR_CRC8(received_data, 8);
+////      if (calculated_crc == received_data[8])
+////      {
+////        // CRC校验通过，发送到CAN
+////        // CAN ID = 源模块ID，数据帧 = 纯数据
+////        CAN_SendData(received_data, 8, IR_MODULE_ID);
+////      }
+////      // CRC错误则不发送，由IR_ProcessReceivedFrame发送NACK
+////    }
   }
   /* USER CODE END 3 */
 }

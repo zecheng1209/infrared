@@ -1,4 +1,3 @@
-//红外模块实现  具有ack确认、crc校验、超时重传等功能
 #include "infrared.h"
 #include "stm32f1xx_hal.h"
 #include <string.h>
@@ -21,7 +20,7 @@ static void IR_TX_SetNextTimer(uint16_t delay_us)
     __HAL_TIM_SET_AUTORELOAD(&htim3, delay_us);
     __HAL_TIM_CLEAR_IT(&htim3, TIM_IT_UPDATE);
 }
- 
+
 void IR_Init(void)
 {
     HAL_TIM_IC_Start_IT(&htim2, IC_CHANNEL);
@@ -159,9 +158,9 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                          (capture_value - last_capture_time);
 
         if (!receiving) {
-            // 检测起始信号：4.5ms低电平(载波) + 2.25ms高电平(空闲)
-            // 总共约6.75ms (6750us)
-            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 6750us
+            // 检测起始信号：1.5ms低电平(载波) + 0.75ms高电平(空闲)
+            // 总共约2.25ms (2250us)
+            uint32_t start_total = START_PULSE_LEN + START_SPACE_LEN; // 2250us
             uint32_t tolerance = IR_PULSE_TOLERANCE_US * 3; // 起始信号容差稍大
             if (pulse_duration >= (start_total - tolerance) &&
                 pulse_duration <= (start_total + tolerance)) {
@@ -176,12 +175,12 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                 return;
             }
 
-            // 数据位判断：位0=280us低+280us高 总计560us，位1=280us低+840us高 总计1120us
+            // 数据位判断：位0=60us低+60us高 总计120us，位1=60us低+120us高 总计180us
             // 这里检测的是整个位周期（低电平+高电平）
-            // 位0: 约560us (280+280)
-            // 位1: 约1120us (280+840)
-            uint32_t bit0_total = BIT_ZERO_HIGH + BIT_ZERO_LOW;  // 560us
-            uint32_t bit1_total = BIT_ONE_HIGH + BIT_ONE_LOW;     // 1120us
+            // 位0: 约120us (60+60)
+            // 位1: 约180us (60+120)
+            uint32_t bit0_total = BIT_ZERO_HIGH + BIT_ZERO_LOW;  // 120us
+            uint32_t bit1_total = BIT_ONE_HIGH + BIT_ONE_LOW;     // 180us
             uint32_t tolerance = IR_PULSE_TOLERANCE_US;
 
             if (pulse_duration >= (bit0_total - tolerance) &&
