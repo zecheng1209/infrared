@@ -1,10 +1,10 @@
-//红外模块实现  具有ack确认、crc校验、超时重传等功能
+//红外模块实现  具有解析can数据帧、ack确认、crc校验、超时重传等功能
 #include "infrared.h"
 #include "stm32f1xx_hal.h"
 #include <string.h>
 
 extern TIM_HandleTypeDef htim1;  // 用于 38KHz PWM 载波 (PA8 - TIM1_CH1)
-extern TIM_HandleTypeDef htim2;  // 用于接收输入捕获 (PA15 - TIM2_CH1)
+extern TIM_HandleTypeDef htim2;  // 用于接收输入捕获 (PA15 - TIM2_CH1)，该芯片不支持上下沿同时捕获，程序中设置的为上升沿捕获。
 extern TIM_HandleTypeDef htim3;  // 用于发送时序控制
 
 uint8_t received_data[9];
@@ -117,7 +117,7 @@ void IR_TX_TimerCallback(TIM_HandleTypeDef *htim)
             tx_context.state = IR_TX_IDLE;
             tx_context.busy = false;
             tx_context.last_tx_time = HAL_GetTick();
-            HAL_TIM_Base_Stop_IT(htim);
+            HAL_TIM_Base_Stop_IT(&htim3);
             break;
 
         default:
@@ -125,7 +125,7 @@ void IR_TX_TimerCallback(TIM_HandleTypeDef *htim)
             HAL_GPIO_WritePin(IR_TX_GPIO_PORT, IR_TX_GPIO_PIN, GPIO_PIN_RESET);
             tx_context.busy = false;
             tx_context.state = IR_TX_IDLE;
-            HAL_TIM_Base_Stop_IT(htim);
+            HAL_TIM_Base_Stop_IT(&htim3);
             break;
     }
 }
@@ -176,10 +176,13 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
                 return;
             }
 
-            // 数据位判断：位0=280us低+280us高 总计560us，位1=280us低+840us高 总计1120us
-            // 这里检测的是整个位周期（低电平+高电平）
-            // 位0: 约560us (280+280)
-            // 位1: 约1120us (280+840)
+            // 数据位判断：位0=280us高+280us低 总计560us，位1=280us高+840us低 总计1120us
+            // 红外接收模块是接收到38kHZ的红外信息，就会将那个口设置为高电平，低电平则设置为低电平。
+            // 本模块通过捕获这个口的高低变化，判断是位0还是位1。
+            // 这里检测的是整个位周期（高电平+低电平）。这里是检测两个上升沿（也就是红外灯由低变高）的时间，
+            // 若使用程序在 几百微秒内翻转检测规则，即能够检测上升沿以及下降沿，容易出现问题，故未采用
+            // 位0: 约560us (280+280) 最好情况，全是0位，起始信号6.75ms 72 × 560 µs 40.5 ms  合计约为47ms
+            // 位1: 约1120us (280+840)最坏情况，全是1位，起始信号6.75ms 72 × 1120 µs 80ms以及结束位 ~87.67 ms
             uint32_t bit0_total = BIT_ZERO_HIGH + BIT_ZERO_LOW;  // 560us
             uint32_t bit1_total = BIT_ONE_HIGH + BIT_ONE_LOW;     // 1120us
             uint32_t tolerance = IR_PULSE_TOLERANCE_US;

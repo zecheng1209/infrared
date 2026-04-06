@@ -1,3 +1,7 @@
+//红外模块头文件
+//具有解析can数据帧、ack确认、crc校验、超时重传等功能
+//其中我使用的模块不具有高速发送的功能或者是高速接收的功能，总之在两个相同的模块之间通信时，
+//                     没有完成高速通信（即设置红外时序的一系列时间不能过低）
 #ifndef __INFRARED_H
 #define __INFRARED_H
 
@@ -78,5 +82,5 @@ uint8_t IR_CRC8(uint8_t *data, uint8_t length);
 void IR_ResetBuffer(void);
 void IR_CheckRxTimeout(void);
 void IR_ProcessReceivedFrame(uint8_t *data, uint8_t length);
-///上位机要求，1.能够请求调用模块，对模块发送的接收中断   2.结构体包括各个模块id，以及红外的解析函数
+
 #endif
