@@ -17,6 +17,21 @@ uint32_t rx_last_activity_time = 0;
 
 static IR_TX_Context_t tx_context = {0};
 
+// 自发自收过滤机制：发送冷却期
+volatile uint32_t ir_last_tx_complete_time = 0;  // 最后发送完成时间（数据帧）
+volatile uint32_t ir_last_ack_tx_time = 0;       // 最后ACK/NACK发送完成时间
+volatile uint8_t ir_rx_ignore_self = 0;           // 忽略自收标志
+volatile uint8_t ir_sending_ack = 0;              // 正在发送ACK/NACK的标志
+
+// ===== 调试专用：接收数据快照系统 =====
+// 这些变量用于在Debug模式下保存接收数据的副本，防止被后续操作覆盖
+uint8_t ir_debug_snapshot[IR_DEBUG_SNAPSHOT_COUNT][IR_DEBUG_DATA_LEN] = {0}; // 数据快照数组
+volatile uint8_t ir_debug_snapshot_index = 0;      // 当前快照写入位置（0-3循环）
+volatile uint8_t ir_debug_snapshot_valid[IR_DEBUG_SNAPSHOT_COUNT] = {0}; // 快照有效性标志
+volatile uint32_t ir_debug_snapshot_time[IR_DEBUG_SNAPSHOT_COUNT] = {0}; // 快照时间戳
+volatile uint8_t ir_debug_frame_type[IR_DEBUG_SNAPSHOT_COUNT] = {0}; // 帧类型: 0=数据, 1=ACK, 2=NACK
+volatile uint16_t ir_debug_rx_total_count = 0;     // 总接收帧计数器
+
 static void IR_TX_SetNextTimer(uint16_t delay_us)
 {
     __HAL_TIM_SET_COUNTER(&htim3, 0);
@@ -37,7 +52,7 @@ bool IR_SendData(uint8_t *data, uint8_t length)
 {
     if (length > 8) return false;
     if (tx_context.busy) return false;
-    
+
     uint32_t time_since_last_tx = HAL_GetTick() - tx_context.last_tx_time;
     if (time_since_last_tx < IR_TX_FRAME_INTERVAL_MS) {
         return false;
@@ -51,9 +66,12 @@ bool IR_SendData(uint8_t *data, uint8_t length)
     tx_context.bit_index = 7;
     tx_context.busy = true;
 
+    // 设置自发自收过滤：标记即将发送
+    ir_rx_ignore_self = 1;
+
     tx_context.state = IR_TX_START_PULSE;
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-    
+
     IR_TX_SetNextTimer(START_PULSE_LEN);
     HAL_TIM_Base_Start_IT(&htim3);
     HAL_GPIO_WritePin(IR_TX_GPIO_PORT, IR_TX_GPIO_PIN, GPIO_PIN_SET);
@@ -119,6 +137,17 @@ void IR_TX_TimerCallback(TIM_HandleTypeDef *htim)
             tx_context.state = IR_TX_IDLE;
             tx_context.busy = false;
             tx_context.last_tx_time = HAL_GetTick();
+
+            // 记录发送完成时间，用于自发自收过滤
+            uint32_t now = HAL_GetTick();
+            ir_last_tx_complete_time = now;
+
+            // 如果是ACK/NACK帧，单独记录时间（ACK冷却期更短）
+            if (ir_sending_ack) {
+                ir_last_ack_tx_time = now;
+                ir_sending_ack = 0;  // 清除标志
+            }
+
             HAL_TIM_Base_Stop_IT(&htim3);
             break;
 
@@ -224,14 +253,73 @@ volatile uint8_t ir_ack_received_flag = 0; // ACK接收标志
 volatile uint8_t ir_ack_status = 0;        // ACK状态: 0=无, 1=ACK, 2=NACK
 
 void IR_ReceiveData(void) {
+    // ===== 智能自发自收过滤（基于帧类型） =====
+
+    // 先预判帧类型（不修改数据）
+    uint8_t is_ack_frame = (received_data[0] == IR_ACK_MAGIC && received_data[1] == IR_ACK_MAGIC);
+    uint8_t is_nack_frame = (received_data[0] == IR_NACK_MAGIC && received_data[1] == IR_NACK_MAGIC);
+    uint8_t is_control_frame = is_ack_frame || is_nack_frame;
+
+    if (ir_rx_ignore_self) {
+        uint32_t now = HAL_GetTick();
+
+        if (is_control_frame) {
+            // ACK/NACK帧：使用较短的冷却期（40ms）
+            // 因为：①只有2字节，发送时间短 ②需要尽快接收对方的确认
+            uint32_t time_since_ack_tx = now - ir_last_ack_tx_time;
+            if (time_since_ack_tx < IR_ACK_FILTER_MS) {
+                // 在ACK冷却期内，忽略这个ACK/NACK（可能是自己发的回声）
+                return;
+            }
+        } else {
+            // 数据帧：使用标准冷却期（80ms）
+            uint32_t time_since_tx = now - ir_last_tx_complete_time;
+            if (time_since_tx < IR_RX_SELF_FILTER_MS) {
+                // 在冷却期内，忽略这个数据（很可能是自己发的）
+                return;
+            }
+        }
+
+        // 所有冷却期都结束了，清除忽略标志
+        ir_rx_ignore_self = 0;
+    }
+
+    // ===== 调试专用：立即创建数据快照 =====
+    // 在设置任何标志之前，先将接收到的数据复制到调试缓冲区
+    // 这样即使后续操作覆盖了 received_data[]，Debug中仍能看到原始数据
+    {
+        uint8_t idx = ir_debug_snapshot_index;
+
+        // 复制数据到快照缓冲区（原子操作，防止中断干扰）
+        memcpy(ir_debug_snapshot[idx], received_data, IR_DEBUG_DATA_LEN);
+
+        // 记录快照元信息
+        ir_debug_snapshot_time[idx] = HAL_GetTick();
+        ir_debug_snapshot_valid[idx] = 1;  // 标记为有效
+
+        // 确定帧类型并记录
+        if (is_ack_frame) {
+            ir_debug_frame_type[idx] = 1;  // ACK
+        } else if (is_nack_frame) {
+            ir_debug_frame_type[idx] = 2;  // NACK
+        } else {
+            ir_debug_frame_type[idx] = 0;  // 数据帧
+        }
+
+        // 更新计数器和索引（循环使用4个槽位）
+        ir_debug_rx_total_count++;
+        ir_debug_snapshot_index = (idx + 1) % IR_DEBUG_SNAPSHOT_COUNT;
+    }
+
+    // ===== 正常处理接收到的帧 =====
     // 检查是否是ACK帧
-    if (received_data[0] == IR_ACK_MAGIC && received_data[1] == IR_ACK_MAGIC) {
+    if (is_ack_frame) {
         ir_ack_status = 1;  // 收到ACK
         ir_ack_received_flag = 1;
         return;
     }
     // 检查是否是NACK帧
-    if (received_data[0] == IR_NACK_MAGIC && received_data[1] == IR_NACK_MAGIC) {
+    if (is_nack_frame) {
         ir_ack_status = 2;  // 收到NACK
         ir_ack_received_flag = 1;
         return;
@@ -270,7 +358,7 @@ bool IR_SendDataWithRetry(uint8_t *data, uint8_t length, uint8_t max_retry)
     return false;
 }
 
-// 发送ACK帧
+// 发送ACK帧（阻塞方式，用于简单场景）
 void IR_SendAck(uint8_t status)
 {
     uint8_t ack_frame[2];
@@ -282,6 +370,24 @@ void IR_SendAck(uint8_t status)
         ack_frame[1] = IR_NACK_MAGIC;
     }
     IR_SendDataWithRetry(ack_frame, 2, 2);
+}
+
+// 发送ACK帧（非阻塞方式，推荐用于主循环）
+bool IR_SendDataAck_NonBlocking(uint8_t status)
+{
+    uint8_t ack_frame[2];
+    if (status == 1) {
+        ack_frame[0] = IR_ACK_MAGIC;
+        ack_frame[1] = IR_ACK_MAGIC;
+    } else {
+        ack_frame[0] = IR_NACK_MAGIC;
+        ack_frame[1] = IR_NACK_MAGIC;
+    }
+
+    // 标记正在发送ACK/NACK
+    ir_sending_ack = 1;
+
+    return IR_SendData(ack_frame, 2);
 }
 
 // 带ACK确认的数据发送（推荐用于双向通信）
@@ -360,5 +466,61 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM3) {
         IR_TX_TimerCallback(htim);
+    }
+}
+
+// ===== 调试辅助函数 =====
+
+// 获取最新的有效数据快照索引（返回最近一次接收的快照位置）
+// 返回值：0-3 表示有效的快照索引，0xFF 表示没有有效快照
+uint8_t IR_DebugGetLatestSnapshot(void)
+{
+    // 从当前索引往前找最近的那个有效快照
+    int8_t idx = ((int8_t)ir_debug_snapshot_index - 1 + IR_DEBUG_SNAPSHOT_COUNT) % IR_DEBUG_SNAPSHOT_COUNT;
+
+    for (uint8_t i = 0; i < IR_DEBUG_SNAPSHOT_COUNT; i++) {
+        if (ir_debug_snapshot_valid[idx]) {
+            return (uint8_t)idx;
+        }
+        idx = ((int8_t)idx - 1 + IR_DEBUG_SNAPSHOT_COUNT) % IR_DEBUG_SNAPSHOT_COUNT;
+    }
+
+    return 0xFF;  // 没有找到有效快照
+}
+
+// 将指定快照的数据复制到用户缓冲区
+// 参数：snapshot_index - 快照索引(0-3), buffer - 用户缓冲区, length - 缓冲区长度
+// 返回值：true=成功, false=失败（无效索引或缓冲区太小）
+bool IR_DebugCopySnapshot(uint8_t snapshot_index, uint8_t *buffer, uint8_t length)
+{
+    if (snapshot_index >= IR_DEBUG_SNAPSHOT_COUNT) return false;
+    if (!ir_debug_snapshot_valid[snapshot_index]) return false;
+    if (length < IR_DEBUG_DATA_LEN) return false;
+
+    memcpy(buffer, ir_debug_snapshot[snapshot_index], IR_DEBUG_DATA_LEN);
+    return true;
+}
+
+// 清除所有快照（在需要重置调试状态时调用）
+void IR_DebugClearSnapshots(void)
+{
+    for (uint8_t i = 0; i < IR_DEBUG_SNAPSHOT_COUNT; i++) {
+        ir_debug_snapshot_valid[i] = 0;
+        memset(ir_debug_snapshot[i], 0, IR_DEBUG_DATA_LEN);
+    }
+    ir_debug_snapshot_index = 0;
+    ir_debug_rx_total_count = 0;
+}
+
+// 获取指定快照的帧类型描述字符串（用于调试打印）
+const char* IR_DebugGetFrameTypeStr(uint8_t snapshot_index)
+{
+    if (snapshot_index >= IR_DEBUG_SNAPSHOT_COUNT) return "INVALID";
+
+    switch (ir_debug_frame_type[snapshot_index]) {
+        case 0: return "DATA";
+        case 1: return "ACK";
+        case 2: return "NACK";
+        default: return "UNKNOWN";
     }
 }

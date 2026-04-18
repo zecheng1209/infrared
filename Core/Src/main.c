@@ -52,10 +52,15 @@ extern volatile uint8_t can_rx_buffer[8];
 extern volatile uint8_t can_rx_flag;
 extern volatile uint32_t can_rx_id;
 
-// 红外发送状态（用于CAN→红外带ACK确认）
+// 红外发送状态（用于非阻塞状态机）
 #define IR_TX_IDLE       0
-#define IR_TX_WAIT_ACK    1
+#define IR_TX_WAIT_ACK   1
 volatile uint8_t ir_tx_state = IR_TX_IDLE;
+volatile uint8_t tx_count = 0;  // 发送计数器
+
+// CAN→红外发送缓冲区
+uint8_t can_to_ir_buffer[8];
+uint8_t can_to_ir_ready = 0;  // 数据就绪标志
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -115,41 +120,60 @@ int main(void)
     /* USER CODE BEGIN 3 */
     IR_CheckRxTimeout();
 
-////    // CAN → 红外 (带ACK确认机制)
-////    // CAN ID = 目标模块ID，     数据帧 = 纯数据
-////    if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
-////    {
-////      can_rx_flag = 0;
+    // ========== CAN → 红外（非阻塞状态机 + 自发自收过滤） ==========
+    // 第1步：检查CAN数据并缓存（不阻塞，立即返回）
+    if (ir_tx_state == IR_TX_IDLE && can_rx_flag && !IR_IsTXBusy())
+    {
+      can_rx_flag = 0;
 
-////      // 检查CAN ID是否匹配本模块
-////      if (can_rx_id == IR_MODULE_ID)
-////      {
-////        ir_tx_state = IR_TX_WAIT_ACK;
-////        // 使用带ACK确认的发送函数，自动添加CRC
-////        IR_SendDataAndWaitAck((uint8_t*)can_rx_buffer, 8, 3);
-////        ir_tx_state = IR_TX_IDLE;
-////      }
-////      // ID不匹配则忽略该CAN帧
-////    }
+      // 检查CAN ID是否匹配本模块
+      if (can_rx_id == IR_MODULE_ID)
+      {
+        memcpy(can_to_ir_buffer, (uint8_t*)can_rx_buffer, 8);
+        can_to_ir_ready = 1;
+      }
+      // ID不匹配则忽略该CAN帧
+    }
 
-////    // 红外 → CAN
-////    // 当红外接收完成时，处理数据并自动回复ACK/NACK
-////    if (ir_rx_complete_flag)
-////    {
-////      ir_rx_complete_flag = 0;
-////      // 处理接收到的数据，验证CRC并自动回复ACK
-////      IR_ProcessReceivedFrame(received_data, 9);
+    // 第2步：发送缓存的CAN数据（非阻塞）
+    // 注意：IR_SendData()会自动设置ir_rx_ignore_self标志
+    //       发送完成后80ms内会自动忽略接收到的数据（防自收）
+    if (can_to_ir_ready && !IR_IsTXBusy())
+    {
+      if (IR_SendData(can_to_ir_buffer, 8))
+      {
+        tx_count++;  // 发送成功计数
+        can_to_ir_ready = 0;  // 清除就绪标志
 
-////      // 验证CRC（第9字节是CRC）
-////      uint8_t calculated_crc = IR_CRC8(received_data, 8);
-////      if (calculated_crc == received_data[8])
-////      {
-////        // CRC校验通过，发送到CAN
-////        // CAN ID = 源模块ID，数据帧 = 纯数据
-////        CAN_SendData(received_data, 8, IR_MODULE_ID);
-////      }
-////      // CRC错误则不发送，由IR_ProcessReceivedFrame发送NACK
-////    }
+        // 调试信息：可以观察发送和忽略状态
+        // printf("TX: count=%d, ignore=%d\r\n", tx_count, ir_rx_ignore_self);
+      }
+    }
+
+    // ========== 红外 → CAN（非阻塞处理 + 自动防自收） ==========
+    // ir_rx_complete_flag只在冷却期结束后才会被设置（在infrared.c中已处理）
+    // 所以这里收到的数据一定是其他模块发的，不是自己发的！
+    if (ir_rx_complete_flag)
+    {
+      ir_rx_complete_flag = 0;
+
+      // 验证CRC（第9字节是CRC）
+      uint8_t calculated_crc = IR_CRC8(received_data, 8);
+      if (calculated_crc == received_data[8])
+      {
+        // CRC校验通过，发送ACK（使用非阻塞方式，也会触发80ms冷却期）
+        IR_SendDataAck_NonBlocking(1);
+
+        // 发送到CAN总线
+        // CAN ID = 源模块ID，数据帧 = 纯数据（不含CRC）
+        CAN_SendData(received_data, 8, IR_MODULE_ID);
+      }
+      else
+      {
+        // CRC错误，发送NACK
+        IR_SendDataAck_NonBlocking(2);
+      }
+    }
   }
   /* USER CODE END 3 */
 }

@@ -138,10 +138,10 @@ void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;//上升沿  // 下降沿捕获（红外接收模块输出反相）
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;//上升沿  
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;  // 不能增加滤波，因为本身红外接收时间就过短！！！
+  sConfigIC.ICFilter = 0;  // 推测不能增加滤波，因为本身红外接收时间就过短！！！
   if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
